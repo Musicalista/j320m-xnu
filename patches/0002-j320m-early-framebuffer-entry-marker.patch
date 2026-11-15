@@ -1,0 +1,50 @@
+diff --git a/osfmk/arm/start.s b/osfmk/arm/start.s
+index 54817a2..c103e91 100644
+--- a/osfmk/arm/start.s
++++ b/osfmk/arm/start.s
+@@ -120,6 +120,49 @@
+ 	mov		r9, r0
+ 	mov		r10, #0
+ 
++#if defined(J320M)
++	/*
++	 * First visual checkpoint on Samsung Galaxy J3 (2016) SM-J320M.
++	 * Spreadtrum U-Boot framebuffer:
++	 *   physical base = 0x9EB74000
++	 *   stride        = 2880 bytes (720x1280 ARGB_8888)
++	 *
++	 * Executed in ARMv7-A Supervisor Mode with MMU off.
++	 */
++	ldr	r10, =0x9EB74000
++	ldr	r11, =0xFF00FF00	/* Bright Green test marker */
++	mov	r12, #16		/* 16 rows */
++	mov	r3, #2880		/* Row stride */
++
++Lj320m_entry_row:
++	mov	r1, r10
++	mov	r2, #48			/* 48 pixels wide */
++
++Lj320m_entry_pixel:
++	str	r11, [r1], #4
++	subs	r2, r2, #1
++	bne	Lj320m_entry_pixel
++
++	/* Clean data cache line to PoC across the painted strip */
++	bic	r4, r10, #63
++Lj320m_entry_flush:
++	mcr	p15, 0, r4, c7, c10, 1
++	add	r4, r4, #64
++	cmp	r4, r1
++	blo	Lj320m_entry_flush
++
++	dsb
++
++	add	r10, r10, r3
++	subs	r12, r12, #1
++	bne	Lj320m_entry_row
++
++	dsb
++	isb
++	mov	r10, #0
++#endif
++

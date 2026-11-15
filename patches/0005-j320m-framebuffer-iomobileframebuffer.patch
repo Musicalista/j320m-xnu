@@ -1,0 +1,72 @@
+diff --git a/iokit/Kernel/arm/J320MDisplay.cpp b/iokit/Kernel/arm/J320MDisplay.cpp
+new file mode 100644
+index 0000000..98b1a20
+--- /dev/null
++++ b/iokit/Kernel/arm/J320MDisplay.cpp
+@@ -0,0 +1,85 @@
++/*
++ * Samsung Galaxy J3 (2016) SM-J320M Framebuffer Driver
++ * Maps the 720x1280 AMOLED framebuffer initialized by Spreadtrum U-Boot.
++ */
++
++#include <IOKit/IOService.h>
++#include <IOKit/IOPlatformExpert.h>
++#include <pexpert/pexpert.h>
++
++class J320MDisplay : public IOService {
++	OSDeclareDefaultStructors(J320MDisplay);
++
++private:
++	vm_offset_t fb_phys;
++	vm_offset_t fb_virt;
++	uint32_t fb_width;
++	uint32_t fb_height;
++	uint32_t fb_stride;
++
++public:
++	virtual bool init(OSDictionary *propTable = 0) override;
++	virtual bool start(IOService *provider) override;
++	virtual void stop(IOService *provider) override;
++};
++
++OSDefineMetaClassAndStructors(J320MDisplay, IOService);
++
++bool J320MDisplay::init(OSDictionary *propTable) {
++	if (!IOService::init(propTable)) return false;
++	fb_phys = 0x9EB74000ULL;
++	fb_width = 720;
++	fb_height = 1280;
++	fb_stride = 2880;
++	return true;
++}
++
++bool J320MDisplay::start(IOService *provider) {
++	if (!IOService::start(provider)) return false;
++
++	fb_virt = ml_io_map(fb_phys, fb_stride * fb_height);
++	if (!fb_virt) {
++		IOLog("J320MDisplay: failed to map physical framebuffer at 0x%08llx\n", (uint64_t)fb_phys);
++		return false;
++	}
++
++	setProperty("LinearAddress", (uint64_t)fb_virt, 64);
++	setProperty("Width", (uint64_t)fb_width, 32);
++	setProperty("Height", (uint64_t)fb_height, 32);
++	setProperty("RowBytes", (uint64_t)fb_stride, 32);
++	setProperty("PixelFormat", "ARGB8888");
++	setProperty("DisplayType", "SuperAMOLED-DSI");
++
++	IOLog("J320MDisplay: initialized 720x1280 @ 0x%08llx (VA: 0x%08llx)\n", 
++		(uint64_t)fb_phys, (uint64_t)fb_virt);
++
++	registerService();
++	return true;
++}
++
++void J320MDisplay::stop(IOService *provider) {
++	IOService::stop(provider);
++}
++
++/* Kernel config table registration */
++extern const char * gIOKernelConfigTables;
++

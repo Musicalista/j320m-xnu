@@ -1,0 +1,76 @@
+diff --git a/pexpert/pexpert/arm/J320M.h b/pexpert/pexpert/arm/J320M.h
+new file mode 100644
+index 0000000..f9810a4
+--- /dev/null
++++ b/pexpert/pexpert/arm/J320M.h
+@@ -0,0 +1,52 @@
++/*
++ * Samsung Galaxy J3 (2016) SM-J320M (Spreadtrum SC9830A, Cortex-A7 Quad)
++ * Platform definitions and low-level MMIO topology for Darwin/XNU.
++ */
++
++#ifndef _PEXPERT_ARM_J320M_H
++#define _PEXPERT_ARM_J320M_H
++
++#define J320M                          1
++#define NO_MONITOR                     1
++#define NO_ECORE                       1
++
++/* CPU Core Configuration */
++#define MAX_CPUS                       4
++#define MAX_CPU_CLUSTERS               1
++#define MAX_L2_CLINE                   6
++#define CORE_NCTRS                     4
++
++/* Architecture Properties */
++#define __ARM_ARCH__                   7
++#define __ARM_VMSA__                   7
++#define __ARM_VFP__                    4
++#define __ARM_COHERENT_CACHE__         1
++#define __ARM_DEBUG__                  7
++#define __ARM_ENABLE_SWAP__            1
++
++/* Memory & Framebuffer Layout */
++#define J320M_DRAM_BASE                0x80000000ULL
++#define J320M_DRAM_SIZE                0x60000000ULL   /* 1.5 GB LPDDR3 */
++
++#define J320M_FB_BASE                  0x9EB74000ULL   /* Framebuffer carveout */
++#define J320M_FB_WIDTH                 720
++#define J320M_FB_HEIGHT                1280
++#define J320M_FB_STRIDE                2880            /* 720 * 4 (ARGB_8888) */
++
++/* GICv2 Interrupt Controller */
++#define HAS_GIC_V3                     0
++#define J320M_GICD_BASE                0x12001000ULL
++#define J320M_GICC_BASE                0x12002000ULL
++#define J320M_VTIMER_INTID             27              /* Virtual timer PPI */
++#define J320M_IPI_SGI                  1               /* Software interrupt */
++
++/* Serial Debug Console (UART1) */
++#define J320M_UART_BASE                0x70100000ULL
++#define J320M_UART_CLOCK               26000000U       /* 26 MHz source clock */
++#define J320M_UART_BAUD                115200U
++
++#ifndef ASSEMBLER
++#define PLATFORM_PANIC_LOG_DISABLED
++#endif
++
++#endif /* _PEXPERT_ARM_J320M_H */
+diff --git a/pexpert/pexpert/arm/board_config.h b/pexpert/pexpert/arm/board_config.h
+index 81bca32..a2e051c 100644
+--- a/pexpert/pexpert/arm/board_config.h
++++ b/pexpert/pexpert/arm/board_config.h
+@@ -48,6 +48,15 @@
+ 
+ #endif /* ARM_BOARD_CONFIG_T7000 */
+ 
++#ifdef ARM_BOARD_CONFIG_J320M
++#include <pexpert/arm/J320M.h>
++
++#define MAX_L2_CLINE                   6
++#define MAX_CPUS                       4
++#define MAX_CPU_CLUSTERS               1
++#define CORE_NCTRS                     4
++#endif /* ARM_BOARD_CONFIG_J320M */
++
+ #endif /* ! _PEXPERT_ARM_BOARD_CONFIG_H */

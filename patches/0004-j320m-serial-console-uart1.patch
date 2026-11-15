@@ -1,0 +1,55 @@
+diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
+index f72a081..d942c15 100644
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -210,6 +210,51 @@
+ 	return;
+ }
+ 
++#elif defined(J320M)
++/*
++ * Spreadtrum SC9830A Serial UART1 Debug Console (0x70100000, 26 MHz, 115200 8N1)
++ */
++#define SPRD_UART_BASE    0x70100000
++#define SPRD_UART_TXD     0x0000
++#define SPRD_UART_STS0    0x0008
++#define SPRD_STS0_TX_FULL (1U << 8)
++
++static vm_offset_t sprd_uart_mapped_base = 0;
++
++void
++uart_init(void)
++{
++	sprd_uart_mapped_base = ml_io_map(SPRD_UART_BASE, 0x1000);
++}
++
++void
++uart_putc(char c)
++{
++	if (c == '\n') {
++		uart_putc('\r');
++	}
++
++	volatile uint32_t *sts = (volatile uint32_t *)(sprd_uart_mapped_base ? 
++		(sprd_uart_mapped_base + SPRD_UART_STS0) : (SPRD_UART_BASE + SPRD_UART_STS0));
++	volatile uint32_t *txd = (volatile uint32_t *)(sprd_uart_mapped_base ? 
++		(sprd_uart_mapped_base + SPRD_UART_TXD) : (SPRD_UART_BASE + SPRD_UART_TXD));
++
++	/* Wait until TX FIFO is not full */
++	while (*sts & SPRD_STS0_TX_FULL) {
++		__builtin_arm_dsb(DSB_SY);
++	}
++
++	*txd = (uint32_t)(uint8_t)c;
++	__builtin_arm_dsb(DSB_SY);
++}
++
++int
++uart_getc(void)
++{
++	return -1;
++}
++
+ #else
+ /* Default stub */
+ void uart_init(void) {}

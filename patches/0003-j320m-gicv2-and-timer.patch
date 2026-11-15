@@ -1,0 +1,85 @@
+diff --git a/pexpert/arm/pe_fiq.c b/pexpert/arm/pe_fiq.c
+index a1870b2..e9381c0 100644
+--- a/pexpert/arm/pe_fiq.c
++++ b/pexpert/arm/pe_fiq.c
+@@ -140,6 +140,79 @@
+ 	return;
+ }
+ #else
++#if defined(J320M)
++/*
++ * Spreadtrum SC9830A (SharkLS) GIC-400 (GICv2):
++ * Distributor:   0x12001000
++ * CPU Interface: 0x12002000
++ */
++static vm_offset_t j320m_gicd_base;
++static vm_offset_t j320m_gicc_base;
++
++static inline uint32_t
++j320m_gic_read32(vm_offset_t base, unsigned int offset)
++{
++	return *(volatile uint32_t *)(base + offset);
++}
++
++static inline void
++j320m_gic_write32(vm_offset_t base, unsigned int offset, uint32_t value)
++{
++	*(volatile uint32_t *)(base + offset) = value;
++}
++
++uint32_t
++j320m_irq_ack(void)
++{
++	return j320m_gic_read32(j320m_gicc_base, 0x00c); /* GICC_IAR */
++}
++
++void
++j320m_irq_eoi(uint32_t iar)
++{
++	j320m_gic_write32(j320m_gicc_base, 0x010, iar);   /* GICC_EOIR */
++}
++
++void
++j320m_send_self_ipi(void)
++{
++	__builtin_arm_dsb(DSB_ISHST);
++	/* SGI 1 targeted to requesting CPU */
++	j320m_gic_write32(j320m_gicd_base, 0xf00, (2U << 24) | 1U);
++}
++
++void
++pe_init_fiq(void)
++{
++	/* Map Spreadtrum SC9830A GICv2 registers */
++	j320m_gicd_base = ml_io_map(0x12001000, 0x1000);
++	j320m_gicc_base = ml_io_map(0x12002000, 0x1000);
++	if (!j320m_gicd_base || !j320m_gicc_base) {
++		panic("j320m: failed to map GICv2 distributor or CPU interface");
++	}
++
++	/* Enable Virtual Timer PPI (INTID 27) and SGI 1 */
++	j320m_gic_write32(j320m_gicd_base, 0x080,
++	    j320m_gic_read32(j320m_gicd_base, 0x080) | (1U << 27) | (1U << 1));
++
++	/* Priority configuration for SGIs and PPIs */
++	for (unsigned int i = 0; i < 32; i += 4) {
++		j320m_gic_write32(j320m_gicd_base, 0x400 + i, 0xa0a0a0a0U);
++	}
++
++	/* Set enable forwarder */
++	j320m_gic_write32(j320m_gicd_base, 0x100, (1U << 27) | (1U << 1));
++	j320m_gic_write32(j320m_gicc_base, 0x004, 0xff); /* GICC_PMR - accept all priorities */
++	j320m_gic_write32(j320m_gicc_base, 0x008, 0x00); /* GICC_BPR - no preemption split */
++	j320m_gic_write32(j320m_gicc_base, 0x000, 1U);   /* GICC_CTLR - enable signaling */
++	j320m_gic_write32(j320m_gicd_base, 0x000, 1U);   /* GICD_CTLR - enable distributor */
++
++	__builtin_arm_dsb(DSB_SY);
++	__builtin_arm_isb(ISB_SY);
++}
++#else
+ void
+ pe_init_fiq()
+ {
+ }
++#endif /* J320M */
+ #endif
