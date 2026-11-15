@@ -1,0 +1,5 @@
+# Temporary build objects
+*.o
+build/ramdisk_root/
+build/ramdisk.img
+build/kernel.mach
