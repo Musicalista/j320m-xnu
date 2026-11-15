@@ -56,6 +56,18 @@ The patchset in `patches/` adapts the hardware layer to the Spreadtrum SC9830A t
    - Spreadtrum SC9830A UART1 polling driver at `0x70100000` (`115200 8N1`).
 5. **`0005-j320m-framebuffer-iomobileframebuffer.patch`**:
    - `IOMobileFramebuffer` driver registering the 720x1280 Super AMOLED display buffer with CoreAnimation/IOSurface.
+6. **`0006-j320m-smp-quadcore-bringup.patch`**:
+   - Quad-core SMP secondary core release (CPU1, CPU2, CPU3) via Spreadtrum holding pen (`0x20E00014`), jump address register (`0x20E00018`), PMU CA7 power un-gating (`0x402B0008`..`0x402B0010`), and GIC SGI 1.
+7. **`0007-j320m-touch-imagis-ist30xxc.patch`**:
+   - Imagis IST30XXC multi-touch driver on Spreadtrum hardware I2C1 (`0x70600000`, 7-bit slave `0x50`, GPIO 142) translating touches to Darwin `IOHIDEventService`.
+8. **`0008-j320m-keys-keypad-gpio.patch`**:
+   - Hardware button scanner for physical Home (`0x40250000` keypad row 0 col 2), Vol Up, Vol Down, and Power (`0x40210000` EIC).
+9. **`0009-j320m-mockfs-ramdisk-ios10.patch`**:
+   - MockFS ramdisk root mounting iOS 10.3.3 Mach-O rootfs from `0x81000000` without proprietary Apple NAND drivers.
+10. **`0010-j320m-amfi-cs-bypass-ios10.patch`**:
+    - AppleMobileFileIntegrity and code-signing policy bypass allowing bare-metal execution of iOS 10.3.3 binaries and daemons.
+11. **`0011-j320m-iphone5-identity-and-display-scale.patch`**:
+    - Sets `hw.machine` = `iPhone5,2`, `hw.model` = `N42AP`, 720x1280 @ 2x retina display, and 1.5 GB physical RAM reporting.
 
 ---
 

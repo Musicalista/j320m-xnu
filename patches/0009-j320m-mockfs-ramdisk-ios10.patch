@@ -1,0 +1,76 @@
+From: Musicalista <musicalista@users.noreply.github.com>
+Subject: [PATCH 0009] j320m: mockfs ramdisk root mounting for iOS 10.3.3
+
+Enable direct RAM disk root mounting for Samsung Galaxy J3 (2016) SM-J320M
+using mockfs / memory image filesystem. Loads the iOS 10.3.3 rootfs directly
+from the U-Boot ramdisk staging region at physical address 0x81000000,
+bypassing Apple proprietary NAND controller and IOStorageFamily dependencies.
+
+Signed-off-by: Musicalista <musicalista@users.noreply.github.com>
+---
+ bsd/dev/arm/conf.c           |  6 ++++++
+ bsd/miscfs/mockfs/mockfs_fsnode.c | 14 ++++++++++++++
+ iokit/Kernel/IOService.cpp   |  9 +++++++++
+ 3 files changed, 29 insertions(+)
+
+diff --git a/bsd/dev/arm/conf.c b/bsd/dev/arm/conf.c
+--- a/bsd/dev/arm/conf.c
++++ b/bsd/dev/arm/conf.c
+@@ -82,6 +82,12 @@ struct bdevsw bdevsw[] = {
+ 	NO_BDEV(),                                      /* 0 */
+ 	NO_BDEV(),                                      /* 1 */
+ 	NO_BDEV(),                                      /* 2 */
++#if defined(ARM_BOARD_CONFIG_J320M)
++	/* Expose mockfs ramdisk block device as root candidate */
++	{ (void *)mockfs_mount, (void *)nullop, (void *)mockfs_strategy,
++	  (void *)nullop, (void *)nullop, (void *)nullop,
++	  0, 0 },                                       /* 3 */
++#endif
+ };
+ const int nblkdev = sizeof(bdevsw) / sizeof(bdevsw[0]);
+ 
+diff --git a/bsd/miscfs/mockfs/mockfs_fsnode.c b/bsd/miscfs/mockfs/mockfs_fsnode.c
+--- a/bsd/miscfs/mockfs/mockfs_fsnode.c
++++ b/bsd/miscfs/mockfs/mockfs_fsnode.c
+@@ -52,6 +52,20 @@
+ 
+ #include <miscfs/mockfs/mockfs.h>
+ #include <miscfs/mockfs/mockfs_fsnode.h>
++#include <pexpert/arm/pe_j320m.h>
++
++#if defined(ARM_BOARD_CONFIG_J320M)
++/* Direct pointer to staged ramdisk at U-Boot load address 0x81000000 */
++extern vm_offset_t j320m_ramdisk_base;
++extern vm_size_t   j320m_ramdisk_size;
++
++void
++j320m_mockfs_setup(void)
++{
++	j320m_ramdisk_base = (vm_offset_t)phystokv(0x81000000u);
++	kprintf("mockfs: J320M staged ramdisk root at 0x%08X\n", 0x81000000u);
++}
++#endif
+ 
+ int
+ mockfs_fsnode_create(mockfs_mounter_t mp, uint8_t type, mockfs_fsnode_t * fsnpp)
+diff --git a/iokit/Kernel/IOService.cpp b/iokit/Kernel/IOService.cpp
+--- a/iokit/Kernel/IOService.cpp
++++ b/iokit/Kernel/IOService.cpp
+@@ -5180,6 +5180,15 @@ IOService::publishResource(const OSSymbol * key, OSObject * value)
+ 
+ 	ioblockstoragedriverClass = OSMetaClass::getMetaClassWithName(gIOBlockStorageDriverKey);
++#if defined(ARM_BOARD_CONFIG_J320M)
++	/*
++	 * J320M bare-metal boot: ramdisk is loaded into memory directly
++	 * by U-Boot boot.img staging. No block media controller required.
++	 */
++	if (!ioblockstoragedriverClass) {
++		root = NULL;
++	}
++#else
+ 	assert(ioblockstoragedriverClass);
++#endif
+ 
+ 	while (root) {
+-- 
+2.39.5

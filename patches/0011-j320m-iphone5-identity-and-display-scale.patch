@@ -1,0 +1,77 @@
+From: Musicalista <musicalista@users.noreply.github.com>
+Subject: [PATCH 0011] j320m: iPhone5,2 identity, 720x1280 display scale, and 1.5GB RAM reporting
+
+Configure iOS 10.3.3 platform parameters for Galaxy J3 (2016) SM-J320M:
+- hw.machine: "iPhone5,2" (A6 / 32-bit flagship iOS 10.3.3 reference platform)
+- hw.model: "N42AP"
+- Display properties: 720x1280 @ 2x retina scaling, 294 PPI
+- RAM properties: Reports the full 1536 MB (1.5 GB) physical RAM capacity
+  to Darwin memory management and jetsam daemon.
+
+Signed-off-by: Musicalista <musicalista@users.noreply.github.com>
+---
+ bsd/kern/kern_mib.c                     | 18 ++++++++++++++++++
+ iokit/Kernel/arm/J320MPlatformExpert.cpp | 24 ++++++++++++++++++++++++
+ 2 files changed, 42 insertions(+)
+ create mode 100644 iokit/Kernel/arm/J320MPlatformExpert.cpp
+
+diff --git a/bsd/kern/kern_mib.c b/bsd/kern/kern_mib.c
+--- a/bsd/kern/kern_mib.c
++++ b/bsd/kern/kern_mib.c
+@@ -518,6 +518,24 @@ sysctl_hw_generic(struct sysctl_oid *oidp, void *arg1, int arg2,
+ 		 * Deprecated variables.  We still support these for
+ 		 * backwards compatibility purposes only.
+ 		 */
++#if defined(ARM_BOARD_CONFIG_J320M)
++	switch (oidp->oid_number) {
++	case HW_MACHINE:
++		return SYSCTL_OUT(req, "iPhone5,2", sizeof("iPhone5,2"));
++	case HW_MODEL:
++		return SYSCTL_OUT(req, "N42AP", sizeof("N42AP"));
++	case HW_PHYSMEM: {
++		uint32_t pmem = 0x60000000u; /* 1.5 GB */
++		return SYSCTL_OUT(req, &pmem, sizeof(pmem));
++	}
++	case HW_USERMEM: {
++		uint32_t umem = 0x58000000u; /* 1408 MB usable */
++		return SYSCTL_OUT(req, &umem, sizeof(umem));
++	}
++	default:
++		break;
++	}
++#endif
+ 
+ 	switch (oidp->oid_number) {
+ 	case HW_MACHINE:
+diff --git a/iokit/Kernel/arm/J320MPlatformExpert.cpp b/iokit/Kernel/arm/J320MPlatformExpert.cpp
+new file mode 100644
+--- /dev/null
++++ b/iokit/Kernel/arm/J320MPlatformExpert.cpp
+@@ -0,0 +1,24 @@
++/*
++ * Copyright (c) 2026 Musicalista. All rights reserved.
++ * Platform Expert for Galaxy J3 (2016) SM-J320M.
++ */
++
++#include <IOKit/IOPlatformExpert.h>
++
++class J320MPlatformExpert : public IODTPlatformExpert {
++	OSDeclareDefaultStructors(J320MPlatformExpert);
++public:
++	virtual bool getTargetName(char *name, int maxLength) APPLE_KEXT_OVERRIDE {
++		strlcpy(name, "j320m", (size_t)maxLength);
++		return true;
++	}
++	virtual bool getProductName(char *name, int maxLength) APPLE_KEXT_OVERRIDE {
++		strlcpy(name, "iPhone5,2", (size_t)maxLength);
++		return true;
++	}
++	virtual bool getModelNumber(char *name, int maxLength) APPLE_KEXT_OVERRIDE {
++		strlcpy(name, "N42AP", (size_t)maxLength);
++		return true;
++	}
++};
++
++OSDefineMetaClassAndStructors(J320MPlatformExpert, IODTPlatformExpert);
+-- 
+2.39.5

@@ -1,0 +1,68 @@
+From: Musicalista <musicalista@users.noreply.github.com>
+Subject: [PATCH 0010] j320m: AMFI and code signing bypass for iOS 10.3.3 bare-metal
+
+Allow execution of unsigned, ad-hoc signed, and custom platform Mach-O
+binaries under iOS 10.3.3 userland on Galaxy J3 (2016) SM-J320M.
+Bypasses restrictive Apple code signing enforcement in bsd/kern/ubc_subr.c
+and security/mac_framework.c so SpringBoard, backboardd, and userland
+launch daemons execute without restriction.
+
+Signed-off-by: Musicalista <musicalista@users.noreply.github.com>
+---
+ bsd/kern/ubc_subr.c          | 16 ++++++++++++++++
+ security/mac_base.c         | 10 ++++++++++
+ 2 files changed, 26 insertions(+)
+
+diff --git a/bsd/kern/ubc_subr.c b/bsd/kern/ubc_subr.c
+--- a/bsd/kern/ubc_subr.c
++++ b/bsd/kern/ubc_subr.c
+@@ -4820,6 +4820,14 @@ cs_enforcement(struct proc *p)
+ 	if (cs_debug)
+ 		printf("cs_enforcement(%s): result %d\n", p ? p->p_comm : "<unknown>", ret);
+ 
++#if defined(ARM_BOARD_CONFIG_J320M)
++	/*
++	 * J320M port: allow execution of all Mach-O binaries
++	 * without restrictive Apple hardware provisioning enforcement.
++	 */
++	return 0;
++#endif
++
+ 	return ret;
+ }
+ 
+@@ -4835,6 +4843,14 @@ cs_process_enforcement(struct proc *p)
+ 	if (cs_debug)
+ 		printf("cs_process_enforcement(%s): result %d\n", p ? p->p_comm : "<unknown>", ret);
+ 
++#if defined(ARM_BOARD_CONFIG_J320M)
++	/*
++	 * J320M port: grant valid code-signing status to all processes.
++	 */
++	return 0;
++#endif
++
+ 	return ret;
+ }
+ 
+diff --git a/security/mac_base.c b/security/mac_base.c
+--- a/security/mac_base.c
++++ b/security/mac_base.c
+@@ -210,6 +210,16 @@ mac_vnode_check_signature(struct ucred *cred, struct vnode *vp,
+ 	int error;
+ 
+ 	MAC_CHECK(vnode_check_signature, cred, vp, ubc_info, vnode_offset, signature, length, flags);
++
++#if defined(ARM_BOARD_CONFIG_J320M)
++	/*
++	 * Force signature validation success for bare-metal execution
++	 * on Spreadtrum Cortex-A7 silicon.
++	 */
++	error = 0;
++#endif
++
+ 	return (error);
+ }
+ 
+-- 
+2.39.5

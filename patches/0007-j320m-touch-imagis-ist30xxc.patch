@@ -1,0 +1,246 @@
+From: Musicalista <musicalista@users.noreply.github.com>
+Subject: [PATCH 0007] j320m: Imagis IST30XXC touchscreen driver over I2C1 for Galaxy J3 2016
+
+Implement driver for the Imagis IST30XXC capacitive touch controller found on
+the Samsung Galaxy J3 (2016) SM-J320M. Connects via Spreadtrum hardware I2C1
+at 0x70600000 with 7-bit slave address 0x50 and GPIO 142 interrupt line.
+Translates multi-touch point data into native Darwin IOHIDEventService touch
+events for backboardd / SpringBoard.
+
+Signed-off-by: Musicalista <musicalista@users.noreply.github.com>
+---
+ bsd/dev/j320m_touch.c | 196 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ bsd/dev/j320m_input.h |  36 +++++++++
+ 2 files changed, 232 insertions(+)
+ create mode 100644 bsd/dev/j320m_touch.c
+ create mode 100644 bsd/dev/j320m_input.h
+
+diff --git a/bsd/dev/j320m_input.h b/bsd/dev/j320m_input.h
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/j320m_input.h
+@@ -0,0 +1,36 @@
++/*
++ * Copyright (c) 2026 Musicalista. All rights reserved.
++ * Input definitions for Samsung Galaxy J3 (2016) SM-J320M.
++ */
++
++#ifndef _BSD_DEV_J320M_INPUT_H_
++#define _BSD_DEV_J320M_INPUT_H_
++
++#include <sys/types.h>
++
++/* Exported to Darwin IOHID event infrastructure */
++extern void sweet_hid_key(int key, int down);
++extern void sweet_hid_touch(int finger, int down, int x, int y);
++
++/* J320M Touch Screen Dimensions */
++#define J320M_TOUCH_MAX_X       720
++#define J320M_TOUCH_MAX_Y       1280
++
++/* Spreadtrum SC9830A I2C1 Base & IST30XXC Slave */
++#define J320M_I2C1_BASE         0x70600000u
++#define J320M_IST30XXC_ADDR     0x50u
++
++/* Spreadtrum GPIO Base & Touch IRQ GPIO */
++#define J320M_D_GPIO_BASE       0x40280000u
++#define J320M_TOUCH_IRQ_GPIO    142u
++
++/* Key codes matching Apple HID usage tables */
++#define APPLE_KEY_POWER         0x30u
++#define APPLE_KEY_HOME          0x40u
++#define APPLE_KEY_VOL_UP        0xE9u
++#define APPLE_KEY_VOL_DOWN      0xEAu
++
++void j320m_touch_init(void);
++void j320m_keys_init(void);
++
++#endif /* _BSD_DEV_J320M_INPUT_H_ */
+diff --git a/bsd/dev/j320m_touch.c b/bsd/dev/j320m_touch.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/j320m_touch.c
+@@ -0,0 +1,196 @@
++/*
++ * Copyright (c) 2026 Musicalista. All rights reserved.
++ * Imagis IST30XXC Touchscreen Driver for Samsung Galaxy J3 (2016).
++ */
++
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <sys/kernel.h>
++#include <mach/mach_types.h>
++#include <kern/thread.h>
++#include <kern/kalloc.h>
++#include <bsd/dev/j320m_input.h>
++
++/* Spreadtrum I2C Controller Registers */
++#define SPRD_I2C_CTL           0x00u
++#define SPRD_I2C_ADDR          0x04u
++#define SPRD_I2C_COUNT         0x08u
++#define SPRD_I2C_TXF           0x0Cu
++#define SPRD_I2C_RXF           0x10u
++#define SPRD_I2C_IE            0x14u
++#define SPRD_I2C_ISR           0x18u
++#define SPRD_I2C_STATUS        0x1Cu
++
++#define SPRD_I2C_BUSY          (1u << 0)
++#define SPRD_I2C_ACK_ERR       (1u << 3)
++#define SPRD_I2C_START         (1u << 0)
++#define SPRD_I2C_STOP          (1u << 1)
++#define SPRD_I2C_READ          (1u << 2)
++#define SPRD_I2C_WRITE         (0u << 2)
++
++/* IST30XXC Command Addresses */
++#define IST30XX_HIB_BASE       0x40000000u
++#define IST30XX_REG_STATUS     0x40000000u
++#define IST30XX_REG_COORD      0x40000008u
++
++static vm_offset_t j320m_i2c1_vaddr;
++static vm_offset_t j320m_gpio_vaddr;
++static bool j320m_touch_active = false;
++
++static inline uint32_t
++i2c_rd(uint32_t reg)
++{
++	return *(volatile uint32_t *)(j320m_i2c1_vaddr + reg);
++}
++
++static inline void
++i2c_wr(uint32_t reg, uint32_t val)
++{
++	*(volatile uint32_t *)(j320m_i2c1_vaddr + reg) = val;
++	__asm__ volatile("dmb sy" ::: "memory");
++}
++
++static bool
++sprd_i2c_wait_ready(void)
++{
++	int timeout = 5000;
++	while ((i2c_rd(SPRD_I2C_STATUS) & SPRD_I2C_BUSY) && --timeout) {
++		delay(2);
++	}
++	return (timeout > 0);
++}
++
++static int
++sprd_i2c_read_bytes(uint8_t slave_addr, uint32_t reg_addr, uint8_t *buf, size_t len)
++{
++	size_t i;
++	if (!sprd_i2c_wait_ready()) return -1;
++
++	/* Send target register address */
++	i2c_wr(SPRD_I2C_ADDR, (uint32_t)slave_addr << 1);
++	i2c_wr(SPRD_I2C_COUNT, 4);
++	i2c_wr(SPRD_I2C_TXF, (reg_addr >> 24) & 0xFF);
++	i2c_wr(SPRD_I2C_TXF, (reg_addr >> 16) & 0xFF);
++	i2c_wr(SPRD_I2C_TXF, (reg_addr >> 8) & 0xFF);
++	i2c_wr(SPRD_I2C_TXF, reg_addr & 0xFF);
++	i2c_wr(SPRD_I2C_CTL, SPRD_I2C_START | SPRD_I2C_WRITE);
++
++	if (!sprd_i2c_wait_ready()) return -1;
++
++	/* Read back data payload */
++	i2c_wr(SPRD_I2C_ADDR, ((uint32_t)slave_addr << 1) | 1u);
++	i2c_wr(SPRD_I2C_COUNT, (uint32_t)len);
++	i2c_wr(SPRD_I2C_CTL, SPRD_I2C_START | SPRD_I2C_STOP | SPRD_I2C_READ);
++
++	for (i = 0; i < len; i++) {
++		int to = 1000;
++		while (!(i2c_rd(SPRD_I2C_STATUS) & (1u << 2)) && --to) delay(1);
++		if (to == 0) return -1;
++		buf[i] = (uint8_t)(i2c_rd(SPRD_I2C_RXF) & 0xFF);
++	}
++
++	return 0;
++}
++
++/* IST30XXC finger coordinate structure */
++struct ist30xx_finger {
++	uint8_t status;
++	uint8_t id;
++	uint16_t x;
++	uint16_t y;
++	uint16_t area;
++};
++
++static void
++j320m_touch_poll_once(void)
++{
++	uint8_t raw[32];
++	uint32_t status_word;
++	int fingers;
++	int i;
++
++	if (sprd_i2c_read_bytes(J320M_IST30XXC_ADDR, IST30XX_REG_STATUS, raw, 4) != 0) {
++		return;
++	}
++
++	status_word = (raw[0] << 24) | (raw[1] << 16) | (raw[2] << 8) | raw[3];
++	fingers = status_word & 0x0F;
++	if (fingers > 5) fingers = 5;
++
++	if (fingers == 0) {
++		/* Touch release: report finger 0 up */
++		sweet_hid_touch(0, 0, 0, 0);
++		return;
++	}
++
++	/* Read coordinate block */
++	if (sprd_i2c_read_bytes(J320M_IST30XXC_ADDR, IST30XX_REG_COORD, raw, fingers * 6) != 0) {
++		return;
++	}
++
++	for (i = 0; i < fingers; i++) {
++		uint8_t *p = &raw[i * 6];
++		int id = (p[0] >> 4) & 0x0F;
++		int state = p[0] & 0x0F; /* 1 = down/move, 0 = up */
++		int x = ((p[1] & 0x0F) << 8) | p[2];
++		int y = ((p[3] & 0x0F) << 8) | p[4];
++
++		/* Constrain to 720x1280 screen geometry */
++		if (x >= J320M_TOUCH_MAX_X) x = J320M_TOUCH_MAX_X - 1;
++		if (y >= J320M_TOUCH_MAX_Y) y = J320M_TOUCH_MAX_Y - 1;
++
++		sweet_hid_touch(id, (state > 0) ? 1 : 0, x, y);
++	}
++}
++
++static void
++j320m_touch_thread(void *arg, wait_result_t res)
++{
++	(void)arg;
++	(void)res;
++
++	kprintf("j320m_touch: IST30XXC listener thread active\n");
++	while (j320m_touch_active) {
++		/* Read GPIO 142 interrupt status (active low) */
++		uint32_t gpio_dat = *(volatile uint32_t *)(j320m_gpio_vaddr + 0x04);
++		bool touched = !(gpio_dat & (1u << (J320M_TOUCH_IRQ_GPIO % 32)));
++
++		if (touched) {
++			j320m_touch_poll_once();
++		}
++		delay(12000); /* ~80 Hz scan rate */
++	}
++}
++
++void
++j320m_touch_init(void)
++{
++	thread_t th;
++	kprintf("j320m_touch: initializing Imagis IST30XXC on I2C1 (0x%08X)\n", J320M_I2C1_BASE);
++
++	j320m_i2c1_vaddr = (vm_offset_t)phystokv(J320M_I2C1_BASE);
++	j320m_gpio_vaddr = (vm_offset_t)phystokv(J320M_D_GPIO_BASE);
++
++	/* Initialize Spreadtrum I2C1 bus clocking */
++	i2c_wr(SPRD_I2C_CTL, 0x00);
++	delay(100);
++
++	j320m_touch_active = true;
++	kernel_thread_start(j320m_touch_thread, NULL, &th);
++	thread_deallocate(th);
++}
+-- 
+2.39.5

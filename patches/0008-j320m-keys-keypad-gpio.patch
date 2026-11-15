@@ -1,0 +1,125 @@
+From: Musicalista <musicalista@users.noreply.github.com>
+Subject: [PATCH 0008] j320m: Spreadtrum hardware keypad and power button driver
+
+Implement button driver for Galaxy J3 (2016) SM-J320M:
+- Home Button: Spreadtrum Keypad (0x40250000) row 0, column 2 -> APPLE_KEY_HOME
+- Volume Up: Spreadtrum Keypad row 0, column 0 -> APPLE_KEY_VOL_UP
+- Volume Down: Spreadtrum Keypad row 0, column 1 -> APPLE_KEY_VOL_DOWN
+- Power Button: Spreadtrum EIC GPIO (0x40210000) -> APPLE_KEY_POWER
+
+Dispatches native Apple HID button events to Darwin's backboardd.
+
+Signed-off-by: Musicalista <musicalista@users.noreply.github.com>
+---
+ bsd/dev/j320m_keys.c | 115 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 115 insertions(+)
+ create mode 100644 bsd/dev/j320m_keys.c
+
+diff --git a/bsd/dev/j320m_keys.c b/bsd/dev/j320m_keys.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/j320m_keys.c
+@@ -0,0 +1,115 @@
++/*
++ * Copyright (c) 2026 Musicalista. All rights reserved.
++ * Hardware Keypad and Power Button Driver for Samsung Galaxy J3 (2016).
++ */
++
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <mach/mach_types.h>
++#include <kern/thread.h>
++#include <bsd/dev/j320m_input.h>
++
++/* Spreadtrum Keypad Controller Base */
++#define J320M_KPD_BASE          0x40250000u
++#define KPD_CTRL                0x00u
++#define KPD_STATUS              0x08u
++#define KPD_DATA                0x0Cu
++#define KPD_INT_CLR             0x14u
++
++/* Spreadtrum EIC (External Interrupt Controller) for Power Button */
++#define J320M_EIC_BASE          0x40210000u
++#define EIC_DATA                0x04u
++
++static vm_offset_t j320m_kpd_vaddr;
++static vm_offset_t j320m_eic_vaddr;
++static bool j320m_keys_running = false;
++
++static uint8_t last_power_state = 0;
++static uint8_t last_home_state  = 0;
++static uint8_t last_volup_state = 0;
++static uint8_t last_voldn_state = 0;
++
++static void
++j320m_keys_poll(void)
++{
++	uint32_t kpd_raw;
++	uint32_t eic_raw;
++	uint8_t cur_home, cur_volup, cur_voldn, cur_power;
++
++	/* 1. Poll EIC for Power Button (bit 0, active low) */
++	eic_raw = *(volatile uint32_t *)(j320m_eic_vaddr + EIC_DATA);
++	cur_power = !(eic_raw & (1u << 0));
++
++	if (cur_power != last_power_state) {
++		sweet_hid_key(APPLE_KEY_POWER, cur_power);
++		last_power_state = cur_power;
++	}
++
++	/* 2. Poll Keypad Matrix for Home, VolUp, VolDown */
++	kpd_raw = *(volatile uint32_t *)(j320m_kpd_vaddr + KPD_DATA);
++
++	/* Row 0, Col 0: Vol Up */
++	cur_volup = (kpd_raw & (1u << 0)) ? 1 : 0;
++	if (cur_volup != last_volup_state) {
++		sweet_hid_key(APPLE_KEY_VOL_UP, cur_volup);
++		last_volup_state = cur_volup;
++	}
++
++	/* Row 0, Col 1: Vol Down */
++	cur_voldn = (kpd_raw & (1u << 1)) ? 1 : 0;
++	if (cur_voldn != last_voldn_state) {
++		sweet_hid_key(APPLE_KEY_VOL_DOWN, cur_voldn);
++		last_voldn_state = cur_voldn;
++	}
++
++	/* Row 0, Col 2: Physical Home Button */
++	cur_home = (kpd_raw & (1u << 2)) ? 1 : 0;
++	if (cur_home != last_home_state) {
++		sweet_hid_key(APPLE_KEY_HOME, cur_home);
++		last_home_state = cur_home;
++	}
++}
++
++static void
++j320m_keys_thread(void *arg, wait_result_t res)
++{
++	(void)arg;
++	(void)res;
++
++	kprintf("j320m_keys: hardware button scan thread started\n");
++	while (j320m_keys_running) {
++		j320m_keys_poll();
++		delay(20000); /* 50 Hz poll rate */
++	}
++}
++
++void
++j320m_keys_init(void)
++{
++	thread_t th;
++	kprintf("j320m_keys: initializing Spreadtrum keypad and power keys\n");
++
++	j320m_kpd_vaddr = (vm_offset_t)phystokv(J320M_KPD_BASE);
++	j320m_eic_vaddr = (vm_offset_t)phystokv(J320M_EIC_BASE);
++
++	/* Configure keypad: 2 rows, 3 columns, enable matrix scanning */
++	*(volatile uint32_t *)(j320m_kpd_vaddr + KPD_CTRL) = 0x01;
++
++	j320m_keys_running = true;
++	kernel_thread_start(j320m_keys_thread, NULL, &th);
++	thread_deallocate(th);
++}
+-- 
+2.39.5

@@ -46,6 +46,10 @@
 | **D_EIC_GPIO** | `0x40210000` | `0x1000` | External Interrupt Controller GPIOs |
 | **DSI Host** | `0x20800000` | `0x1000` | MIPI Display Serial Interface Controller |
 | **eMMC Host** | `0x20300000` | `0x1000` | Internal Storage Interface |
+| **AHB / Holding Pen** | `0x20E00000` | `0x10000` | SMP Holding Pen (`0x14`) & CPU Jump (`0x18`) |
+| **PMU APB** | `0x402B0000` | `0x10000` | Power Management Unit (Cores 1..3 gating `0x08`..`0x10`) |
+| **I2C1 (Touch)** | `0x70600000` | `0x1000` | Hardware I2C1 for Imagis IST30XXC Touch @ `0x50` |
+| **Keypad** | `0x40250000` | `0x1000` | Matrix Keypad (Home row 0 col 2, Vol Up/Down) |
 
 ---
 
@@ -54,6 +58,8 @@
 * **Physical Timer PPI:** INTID `30`
 * **Software Generated Interrupt (SGI):** SGI `1` (IPI signaling across Cortex-A7 cores)
 * **UART1 IRQ:** SPI `3` (GIC INTID `35`)
+* **I2C1 IRQ:** SPI `12` (GIC INTID `44`)
+* **Touchscreen IRQ:** D_GPIO 142 (active-low interrupt)
 * **Display IRQ:** SPI `21` (GIC INTID `53`)
 
 ---
